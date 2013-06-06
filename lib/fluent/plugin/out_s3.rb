@@ -1,9 +1,11 @@
 module Fluent
 
 require 'fluent/mixin/config_placeholders'
+require 'fluent/mixin/plaintextformatter'
 
 class S3Output < Fluent::TimeSlicedOutput
   Fluent::Plugin.register_output('s3', self)
+  include Fluent::Mixin::PlainTextFormatter
 
   def initialize
     super
@@ -43,13 +45,14 @@ class S3Output < Fluent::TimeSlicedOutput
   end
 
   def configure(conf)
+    if format_json = conf.delete('format_json')
+      conf['format'] = 'json'
+      conf['output_include_tag'] = conf['output_include_time'] = false
+    end
     super
 
-    if format_json = conf['format_json']
-      @format_json = true
-    else
-      @format_json = false
-    end
+    @include_tag_key = conf['include_tag_key']
+    @include_time_key = conf['include_time_key']
 
     if use_ssl = conf['use_ssl']
       if use_ssl.empty?
@@ -90,23 +93,9 @@ class S3Output < Fluent::TimeSlicedOutput
   end
 
   def format(tag, time, record)
-    if @include_time_key || !@format_json
-      time_str = @timef.format(time)
-    end
-
-    # copied from each mixin because current TimeSlicedOutput can't support mixins.
-    if @include_tag_key
-      record[@tag_key] = tag
-    end
-    if @include_time_key
-      record[@time_key] = time_str
-    end
-
-    if @format_json
-      Yajl.dump(record) + "\n"
-    else
-      "#{time_str}\t#{tag}\t#{Yajl.dump(record)}\n"
-    end
+    record['time'] = @timef.format(time) if @include_time_key
+    record['tag'] = tag if @include_tag_key
+    super
   end
 
   def write(chunk)
